@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ノート情報検索システム</title>
+    <style>
+        body { font-family: "Helvetica Neue", Arial, sans-serif; text-align: center; padding: 20px; background-color: #fcfcfc; }
+        h2 { margin-bottom: 10px; color: #333; }
+        
+        .description-box {
+            font-size: 0.85rem; color: #555; background-color: #f0f0f0;
+            padding: 15px; margin: 0 auto 25px auto; width: 90%;
+            border-radius: 8px; text-align: left; line-height: 1.5; border: 1px solid #ddd;
+        }
+
+        .voice-btn-container { display: flex; justify-content: space-around; margin-bottom: 15px; }
+        button.voice-btn {
+            font-size: 1.1rem; padding: 15px 10px; width: 45%; 
+            border: none; border-radius: 8px; cursor: pointer; color: #333;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        #btn-search { background-color: #e1f5fe; }
+        #btn-register { background-color: #fff9c4; }
+
+        .manual-search-area {
+            display: flex; justify-content: center; align-items: center;
+            margin: 15px auto; width: 95%;
+        }
+        #search-input {
+            width: 70%; padding: 10px; font-size: 1.1rem;
+            border: 1px solid #ccc; border-radius: 4px 0 0 4px; outline: none;
+        }
+        #btn-manual-run {
+            width: 25%; padding: 10px; font-size: 1rem;
+            background-color: #666; color: white;
+            border: none; border-radius: 0 4px 4px 0; cursor: pointer;
+        }
+
+        #status { height: 30px; margin: 5px 0; color: #0000ff; font-weight: bold; font-size: 0.9rem; }
+        
+        #result-area { width: 100%; overflow-x: auto; padding-bottom: 50px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #ddd; padding: 8px; vertical-align: middle; }
+        th { background-color: #f5f5f5; font-size: 0.9rem; white-space: nowrap; }
+
+        .col-name { width: 35%; }
+        input.edit-name {
+            width: 95%; padding: 8px; font-size: 1.2rem; font-weight: bold; color: #333;
+            border: 1px solid #ccc; border-radius: 4px;
+        }
+        .col-book { width: 10%; text-align: center; font-size: 1.3rem; font-weight: bold; color: #444; }
+        .col-page { width: 10%; text-align: center; font-size: 1.3rem; font-weight: bold; color: #444; }
+        .col-date { width: 15%; text-align: center; font-size: 0.85rem; color: #666; }
+        .col-action { width: 30%; text-align: center; white-space: nowrap; }
+        
+        .btn-update, .btn-delete {
+            font-size: 0.9rem; padding: 8px 12px; margin: 2px;
+            border: none; border-radius: 4px; cursor: pointer; color: white;
+        }
+        .btn-update { background-color: #4CAF50; }
+        .btn-delete { background-color: #f44336; }
+    </style>
+</head>
+<body>
+    <h2>ノート情報検索システム</h2>
+    
+    <div class="description-box">
+        現実世界のノートに記載された各種情報を、〇冊目〇ページという形式でオンライン上に記録し、情報名で検索できるようにするプログラム。<br>
+        記録も検索も音声で実施する。<br>
+        データベースはGoogleスプレッドシート（IDPW索引データ）に記録され、当該シートは手作業でも編集できる。
+    </div>
+
+    <div class="voice-btn-container">
+        <button id="btn-search" class="voice-btn" onclick="startVoice('search')">🎤 音声検索<br><small>（サービス名）</small></button>
+        <button id="btn-register" class="voice-btn" onclick="startVoice('register')">🎤 音声登録<br><small>（〇冊目・〇ページ・名前）</small></button>
+    </div>
+
+    <div class="manual-search-area">
+        <input type="text" id="search-input" placeholder="ここに認識文字が入ります">
+        <button id="btn-manual-run" onclick="manualSearch()">再検索</button>
+    </div>
+
+    <div id="status">ボタンを押して話してください</div>
+
+    <div id="result-area">
+        <table id="result-table">
+            <thead>
+                <tr>
+                    <th class="col-name">サービス名</th>
+                    <th class="col-book">冊</th>
+                    <th class="col-page">頁</th>
+                    <th class="col-date">日付</th>
+                    <th class="col-action">操作</th>
+                </tr>
+            </thead>
+            <tbody id="result-body"></tbody>
+        </table>
+    </div>
+
+    <script>
+        // ==========================================
+        // ↓↓↓ 取得したGASのWebアプリURLを以下に設定 ↓↓↓
+        // ==========================================
+        const GAS_URL = 'https://script.google.com/macros/s/AKfycbydVLLtEb_ZJuGN7y7O8rrgePpGWdJvfGXuX21LDo6jLSsK6ouS1OTMq2EN1cZJC1qzgg/exec';
+
+        const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'ja-JP';
+
+        let mode = '';
+        let audioCtx = null;
+        let lastSearchQuery = '';
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function playSound(type) {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            if (type === 'success') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.1);
+            } else {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(200, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.3);
+            }
+        }
+
+        // GASへの通信を統合する関数
+        function callGasApi(action, payload, onSuccess) {
+            document.getElementById('status').innerText = "通信中...";
+            document.getElementById('status').style.color = "#555";
+            payload.action = action;
+
+            // CORSのプリフライトリクエスト(OPTIONS)を回避するため、text/plainで送信
+            fetch(GAS_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify(payload)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    onSuccess(data);
+                } else {
+                    handleError("サーバーエラー: " + data.message);
+                }
+            })
+            .catch(error => {
+                handleError("通信エラーが発生しました");
+                console.error(error);
+            });
+        }
+
+        function startVoice(m) {
+            initAudio();
+            mode = m;
+            
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(function(stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                    recognition.start();
+                    document.getElementById('status').innerText = "聴取中...";
+                    document.getElementById('status').style.color = "#555";
+                })
+                .catch(function(err) {
+                    alert("マイクの使用がブロックされています。\nブラウザのアドレスバー左側のアイコンをクリックし、マイクを「許可」に変更してください。");
+                    document.getElementById('status').innerText = "マイク権限エラー";
+                    document.getElementById('status').style.color = "red";
+                });
+        }
+
+        function manualSearch() {
+            const text = document.getElementById('search-input').value;
+            if(text) {
+                lastSearchQuery = text;
+                callGasApi('search', { query: text }, data => showSearchResults(data.data));
+            }
+        }
+
+        function updateRow(rowIndex, inputId) {
+            const newName = document.getElementById(inputId).value;
+            if(!newName) return;
+            
+            if(confirm("名称を「" + newName + "」に変更しますか？")) {
+                callGasApi('update', { rowIndex: rowIndex, newName: newName }, data => {
+                    updateStatusSuccess(data.message);
+                    manualSearch(); 
+                });
+            }
+        }
+
+        function deleteRow(rowIndex, name) {
+            if(confirm("「" + name + "」を完全に削除しますか？\n（この操作は元に戻せません）")) {
+                callGasApi('delete', { rowIndex: rowIndex }, data => {
+                    updateStatusSuccess(data.message);
+                    manualSearch(); 
+                });
+            }
+        }
+
+        recognition.onresult = (event) => {
+            let rawText = event.results[0][0].transcript;
+            rawText = rawText.replace(/　/g, " ").trim();
+            document.getElementById('status').innerText = "認識完了処理中...";
+
+            if (mode === 'search') {
+                document.getElementById('search-input').value = rawText;
+                lastSearchQuery = rawText;
+                callGasApi('search', { query: rawText }, data => showSearchResults(data.data));
+            
+            } else if (mode === 'register') {
+                const match = rawText.match(/^(.+?)\s*冊目\s*(?:の)?\s*(.+?)\s*ペ[ーイ]ジ\s*(.+)/);
+                if (match) {
+                    const rawBook = match[1];
+                    const rawPage = match[2];
+                    const name = match[3].trim();
+                    const toNum = (s) => {
+                        let res = s;
+                        res = res.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+                        res = res.replace(/[イい][ッっ]/g, '1').replace(/[ロろ][ッっ]/g, '6');
+                        res = res.replace(/[ハは][ッっ]/g, '8').replace(/[ジじ][ュゅ][ッっ]/g, '10');
+                        res = res.replace(/[ジじ][ュゅ]ウ/g, '10').replace(/[キき][ュゅ]/g, '9');
+                        res = res.replace(/イチ/g, '1').replace(/ニ/g, '2').replace(/サン/g, '3')
+                                 .replace(/ヨン/g, '4').replace(/ゴ/g, '5').replace(/ロク/g, '6')
+                                 .replace(/ナナ/g, '7').replace(/ハチ/g, '8').replace(/キュウ/g, '9')
+                                 .replace(/ジュウ/g, '10').replace(/ゼロ/g, '0');
+                        res = res.replace(/一/g,'1').replace(/二/g,'2').replace(/三/g,'3')
+                                 .replace(/四/g,'4').replace(/五/g,'5').replace(/六/g,'6')
+                                 .replace(/七/g,'7').replace(/八/g,'8').replace(/九/g,'9')
+                                 .replace(/十/g,'10');
+                        res = res.replace(/([2-9])10/g, '$10').replace(/10([0-9])/g, '1$1');
+                        return res;
+                    };
+
+                    const bookNum = parseInt(toNum(rawBook));
+                    const pageNum = parseInt(toNum(rawPage));
+
+                    if (!isNaN(bookNum) && bookNum >= 1 && bookNum <= 9 && 
+                        !isNaN(pageNum) && pageNum >= 0 && pageNum <= 99) {
+                        
+                        callGasApi('add', { name: name, book: bookNum, page: pageNum }, data => updateStatusSuccess(data.message));
+                    } else {
+                        handleError("範囲外（冊:1-9, 頁:0-99）");
+                    }
+                } else {
+                    handleError("形式エラー（〇冊目 〇ページ 名前）");
+                }
+            }
+        };
+
+        function showSearchResults(results) {
+            const tbody = document.getElementById('result-body');
+            tbody.innerHTML = ''; 
+
+            if (results && results.length > 0) {
+                results.forEach((row, index) => {
+                    const inputId = 'name-edit-' + index;
+                    const tr = `<tr>
+                        <td class="col-name">
+                            <input type="text" id="${inputId}" class="edit-name" value="${row.name}">
+                        </td>
+                        <td class="col-book">${row.book}冊</td>
+                        <td class="col-page">${row.page}P</td>
+                        <td class="col-date">${row.date}</td>
+                        <td class="col-action">
+                            <button class="btn-update" onclick="updateRow(${row.rowIndex}, '${inputId}')">保存</button>
+                            <button class="btn-delete" onclick="deleteRow(${row.rowIndex}, '${row.name}')">削除</button>
+                        </td>
+                    </tr>`;
+                    tbody.insertAdjacentHTML('beforeend', tr);
+                });
+                document.getElementById('status').innerText = results.length + "件ヒット";
+                document.getElementById('status').style.color = "blue";
+                playSound('success');
+            } else {
+                handleError("見つかりませんでした");
+            }
+        }
+
+        function updateStatusSuccess(msg) {
+            document.getElementById('status').innerText = msg;
+            document.getElementById('status').style.color = "blue";
+            playSound('success');
+        }
+
+        function handleError(msg) {
+            document.getElementById('status').innerText = msg;
+            document.getElementById('status').style.color = "red";
+            playSound('error');
+        }
+    </script>
+</body>
+</html>
