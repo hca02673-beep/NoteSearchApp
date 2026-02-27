@@ -41,24 +41,30 @@
         
         #result-area { width: 100%; overflow-x: auto; padding-bottom: 50px; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { border: 1px solid #ddd; padding: 8px; vertical-align: middle; }
+        th, td { border: 1px solid #ddd; padding: 6px; vertical-align: middle; }
         th { background-color: #f5f5f5; font-size: 0.9rem; white-space: nowrap; }
 
-        .col-name { width: 35%; }
+        .col-name { width: 40%; }
+        .col-book { width: 15%; text-align: center; }
+        .col-page { width: 15%; text-align: center; }
+        .col-date { width: 10%; text-align: center; font-size: 0.85rem; color: #666; }
+        .col-action { width: 20%; text-align: center; white-space: nowrap; }
+
         input.edit-name {
-            width: 95%; padding: 8px; font-size: 1.2rem; font-weight: bold; color: #333;
-            border: 1px solid #ccc; border-radius: 4px;
+            width: 100%; padding: 8px; font-size: 1.2rem; font-weight: bold; color: #333;
+            border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;
         }
-        .col-book { width: 10%; text-align: center; font-size: 1.3rem; font-weight: bold; color: #444; }
-        .col-page { width: 10%; text-align: center; font-size: 1.3rem; font-weight: bold; color: #444; }
-        .col-date { width: 15%; text-align: center; font-size: 0.85rem; color: #666; }
-        .col-action { width: 30%; text-align: center; white-space: nowrap; }
+        input.edit-num {
+            width: 100%; padding: 8px 0; font-size: 1.2rem; font-weight: bold; color: #444;
+            text-align: center; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;
+        }
         
-        .btn-update, .btn-delete {
+        .btn-update, .btn-delete, .btn-add {
             font-size: 0.9rem; padding: 8px 12px; margin: 2px;
             border: none; border-radius: 4px; cursor: pointer; color: white;
         }
         .btn-update { background-color: #4CAF50; }
+        .btn-add { background-color: #ff9800; }
         .btn-delete { background-color: #f44336; }
     </style>
 </head>
@@ -101,8 +107,8 @@
     <script>
         // ==========================================
         // ↓↓↓ 取得したGASのWebアプリURLを以下に設定 ↓↓↓
-        // ==========================================
         const GAS_URL = 'https://script.google.com/macros/s/AKfycbydVLLtEb_ZJuGN7y7O8rrgePpGWdJvfGXuX21LDo6jLSsK6ouS1OTMq2EN1cZJC1qzgg/exec';
+        // ==========================================
 
         const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
         const recognition = new SpeechRecognition();
@@ -143,13 +149,11 @@
             }
         }
 
-        // GASへの通信を統合する関数
         function callGasApi(action, payload, onSuccess) {
             document.getElementById('status').innerText = "通信中...";
             document.getElementById('status').style.color = "#555";
             payload.action = action;
 
-            // CORSのプリフライトリクエスト(OPTIONS)を回避するため、text/plainで送信
             fetch(GAS_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'text/plain' },
@@ -195,23 +199,45 @@
             }
         }
 
-        function updateRow(rowIndex, inputId) {
-            const newName = document.getElementById(inputId).value;
-            if(!newName) return;
-            
-            if(confirm("名称を「" + newName + "」に変更しますか？")) {
-                callGasApi('update', { rowIndex: rowIndex, newName: newName }, data => {
-                    updateStatusSuccess(data.message);
-                    manualSearch(); 
+        // 行データの保存・新規追加を実行する統合関数
+        function saveRow(rowIndex, prefix) {
+            const newName = document.getElementById(prefix + '-name').value;
+            const newBook = document.getElementById(prefix + '-book').value;
+            const newPage = document.getElementById(prefix + '-page').value;
+
+            if(!newName || !newBook || !newPage) {
+                alert("サービス名、冊数、ページのすべてを入力してください。");
+                return;
+            }
+
+            // rowIndexが存在しない場合は新規の手動登録
+            if (rowIndex === null || rowIndex === 'null') {
+                callGasApi('add', { name: newName, book: parseInt(newBook), page: parseInt(newPage) }, data => {
+                    updateStatusSuccess("手動で登録しました");
+                    showSearchResults([data.data]); // 追加されたデータを表示
+                });
+            } else {
+                // 既存データの更新
+                callGasApi('update', { rowIndex: rowIndex, newName: newName, newBook: parseInt(newBook), newPage: parseInt(newPage) }, data => {
+                    updateStatusSuccess("内容を更新しました");
                 });
             }
         }
 
+        // 行データの削除を実行する関数
         function deleteRow(rowIndex, name) {
+            // 未登録の空行を削除する場合
+            if (rowIndex === null || rowIndex === 'null') {
+                document.getElementById('result-body').innerHTML = '';
+                updateStatusSuccess("登録をキャンセルしました");
+                return;
+            }
+
             if(confirm("「" + name + "」を完全に削除しますか？\n（この操作は元に戻せません）")) {
                 callGasApi('delete', { rowIndex: rowIndex }, data => {
                     updateStatusSuccess(data.message);
-                    manualSearch(); 
+                    if(mode === 'search') manualSearch();
+                    else document.getElementById('result-body').innerHTML = '';
                 });
             }
         }
@@ -256,40 +282,72 @@
                     if (!isNaN(bookNum) && bookNum >= 1 && bookNum <= 9 && 
                         !isNaN(pageNum) && pageNum >= 0 && pageNum <= 99) {
                         
-                        callGasApi('add', { name: name, book: bookNum, page: pageNum }, data => updateStatusSuccess(data.message));
+                        // 【成功時】登録実行後、登録されたデータを1行表示する
+                        callGasApi('add', { name: name, book: bookNum, page: pageNum }, data => {
+                            updateStatusSuccess("音声登録に成功しました（内容を修正可能です）");
+                            showSearchResults([data.data]);
+                        });
                     } else {
-                        handleError("範囲外（冊:1-9, 頁:0-99）");
+                        // 【失敗時】フォーマット外の場合は空行を表示
+                        renderBlankRow();
                     }
                 } else {
-                    handleError("形式エラー（〇冊目 〇ページ 名前）");
+                    // 【失敗時】正規表現マッチ失敗の場合は空行を表示
+                    renderBlankRow();
                 }
             }
         };
 
+        // 認識失敗時に空の行を1行表示する関数
+        function renderBlankRow() {
+            handleError("認識に失敗しました。手動で入力して登録してください。");
+            showSearchResults([{
+                rowIndex: null,
+                name: '',
+                book: '',
+                page: '',
+                date: '未登録'
+            }]);
+        }
+
+        // 検索結果や単一行データをテーブルに描画する関数
         function showSearchResults(results) {
             const tbody = document.getElementById('result-body');
             tbody.innerHTML = ''; 
 
             if (results && results.length > 0) {
                 results.forEach((row, index) => {
-                    const inputId = 'name-edit-' + index;
+                    const prefix = 'row-' + index;
+                    const rIndex = row.rowIndex ? row.rowIndex : null;
+                    
+                    // 新規空行(null)か既存データ(数値)かでボタンの色と文言を変える
+                    const btnText = rIndex ? '保存' : '登録';
+                    const btnClass = rIndex ? 'btn-update' : 'btn-add';
+
                     const tr = `<tr>
                         <td class="col-name">
-                            <input type="text" id="${inputId}" class="edit-name" value="${row.name}">
+                            <input type="text" id="${prefix}-name" class="edit-name" value="${row.name}">
                         </td>
-                        <td class="col-book">${row.book}冊</td>
-                        <td class="col-page">${row.page}P</td>
+                        <td class="col-book">
+                            <input type="number" id="${prefix}-book" class="edit-num" value="${row.book}">
+                        </td>
+                        <td class="col-page">
+                            <input type="number" id="${prefix}-page" class="edit-num" value="${row.page}">
+                        </td>
                         <td class="col-date">${row.date}</td>
                         <td class="col-action">
-                            <button class="btn-update" onclick="updateRow(${row.rowIndex}, '${inputId}')">保存</button>
-                            <button class="btn-delete" onclick="deleteRow(${row.rowIndex}, '${row.name}')">削除</button>
+                            <button class="${btnClass}" onclick="saveRow(${rIndex}, '${prefix}')">${btnText}</button>
+                            <button class="btn-delete" onclick="deleteRow(${rIndex}, '${row.name}')">削除</button>
                         </td>
                     </tr>`;
                     tbody.insertAdjacentHTML('beforeend', tr);
                 });
-                document.getElementById('status').innerText = results.length + "件ヒット";
-                document.getElementById('status').style.color = "blue";
-                playSound('success');
+
+                if(mode === 'search') {
+                    document.getElementById('status').innerText = results.length + "件ヒット";
+                    document.getElementById('status').style.color = "blue";
+                    playSound('success');
+                }
             } else {
                 handleError("見つかりませんでした");
             }
