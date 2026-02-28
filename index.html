@@ -14,26 +14,36 @@
             border-radius: 8px; text-align: left; line-height: 1.5; border: 1px solid #ddd;
         }
 
-        .voice-btn-container { display: flex; justify-content: space-around; margin-bottom: 15px; }
+        /* 上部ボタンエリア（3つ並びに変更） */
+        .voice-btn-container { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 15px; width: 95%; margin: 0 auto 15px auto; }
         button.voice-btn {
-            font-size: 1.1rem; padding: 15px 10px; width: 45%; 
+            font-size: 1rem; padding: 12px 5px; width: 32%; 
             border: none; border-radius: 8px; cursor: pointer; color: #333;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
         #btn-search { background-color: #e1f5fe; }
         #btn-register { background-color: #fff9c4; }
+        #btn-audit { background-color: #e8f5e9; border: 2px solid #4CAF50; }
+
+        /* 読み上げコントロールエリア（通常は非表示） */
+        .tts-controls {
+            display: none; justify-content: center; gap: 10px; margin: 15px auto; 
+            padding: 10px; background-color: #333; border-radius: 8px; width: 90%;
+        }
+        .tts-btn { font-size: 1rem; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; color: white; font-weight: bold; }
+        #btn-play { background-color: #4CAF50; }
+        #btn-pause { background-color: #ff9800; }
+        #btn-stop { background-color: #f44336; }
 
         .manual-search-area {
-            display: flex; justify-content: center; align-items: center;
-            margin: 15px auto; width: 95%;
+            display: flex; justify-content: center; align-items: center; margin: 15px auto; width: 95%;
         }
         #search-input {
             width: 70%; padding: 10px; font-size: 1.1rem;
             border: 1px solid #ccc; border-radius: 4px 0 0 4px; outline: none;
         }
         #btn-manual-run {
-            width: 25%; padding: 10px; font-size: 1rem;
-            background-color: #666; color: white;
+            width: 25%; padding: 10px; font-size: 1rem; background-color: #666; color: white;
             border: none; border-radius: 0 4px 4px 0; cursor: pointer;
         }
 
@@ -44,25 +54,19 @@
         th, td { border: 1px solid #ddd; padding: 6px; vertical-align: middle; }
         th { background-color: #f5f5f5; font-size: 0.9rem; white-space: nowrap; }
 
+        /* 読み上げ中の行をハイライト */
+        .highlight-row td { background-color: #fff59d !important; transition: background-color 0.3s; }
+
         .col-name { width: 40%; }
         .col-book { width: 15%; text-align: center; }
         .col-page { width: 15%; text-align: center; }
         .col-date { width: 10%; text-align: center; font-size: 0.85rem; color: #666; }
         .col-action { width: 20%; text-align: center; white-space: nowrap; }
 
-        input.edit-name {
-            width: 100%; padding: 8px; font-size: 1.2rem; font-weight: bold; color: #333;
-            border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;
-        }
-        input.edit-num {
-            width: 100%; padding: 8px 0; font-size: 1.2rem; font-weight: bold; color: #444;
-            text-align: center; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;
-        }
+        input.edit-name { width: 100%; padding: 8px; font-size: 1.2rem; font-weight: bold; color: #333; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        input.edit-num { width: 100%; padding: 8px 0; font-size: 1.2rem; font-weight: bold; color: #444; text-align: center; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
         
-        .btn-update, .btn-delete, .btn-add {
-            font-size: 0.9rem; padding: 8px 12px; margin: 2px;
-            border: none; border-radius: 4px; cursor: pointer; color: white;
-        }
+        .btn-update, .btn-delete, .btn-add { font-size: 0.9rem; padding: 8px 12px; margin: 2px; border: none; border-radius: 4px; cursor: pointer; color: white; }
         .btn-update { background-color: #4CAF50; }
         .btn-add { background-color: #ff9800; }
         .btn-delete { background-color: #f44336; }
@@ -79,7 +83,14 @@
 
     <div class="voice-btn-container">
         <button id="btn-search" class="voice-btn" onclick="startVoice('search')">🎤 音声検索<br><small>（サービス名）</small></button>
-        <button id="btn-register" class="voice-btn" onclick="startVoice('register')">🎤 音声登録<br><small>（〇冊目・〇ページ・名前）</small></button>
+        <button id="btn-register" class="voice-btn" onclick="startVoice('register')">🎤 音声登録<br><small>（冊・頁・名前）</small></button>
+        <button id="btn-audit" class="voice-btn" onclick="startAudit()">📋 精査モード<br><small>（全件読上）</small></button>
+    </div>
+
+    <div id="tts-controls" class="tts-controls">
+        <button id="btn-play" class="tts-btn" onclick="playReading()">▶ 再生 / 再開</button>
+        <button id="btn-pause" class="tts-btn" onclick="pauseReading()">⏸ 一時停止</button>
+        <button id="btn-stop" class="tts-btn" onclick="stopReading()">⏹ 停止</button>
     </div>
 
     <div class="manual-search-area">
@@ -117,6 +128,13 @@
         let mode = '';
         let audioCtx = null;
         let lastSearchQuery = '';
+
+        // --- 読み上げ機能（TTS）用変数 ---
+        let readingIndex = 0;
+        let totalRows = 0;
+        let isReading = false;
+        let isPaused = false;
+        const synth = window.speechSynthesis;
 
         function initAudio() {
             if (!audioCtx) {
@@ -174,6 +192,7 @@
         }
 
         function startVoice(m) {
+            stopReading(); // 読み上げ中なら強制停止
             initAudio();
             mode = m;
             
@@ -186,20 +205,136 @@
                 })
                 .catch(function(err) {
                     alert("マイクの使用がブロックされています。\nブラウザのアドレスバー左側のアイコンをクリックし、マイクを「許可」に変更してください。");
-                    document.getElementById('status').innerText = "マイク権限エラー";
-                    document.getElementById('status').style.color = "red";
                 });
         }
 
         function manualSearch() {
+            stopReading(); // 検索時は読み上げ停止
             const text = document.getElementById('search-input').value;
-            if(text) {
+            if(text !== "") {
                 lastSearchQuery = text;
-                callGasApi('search', { query: text }, data => showSearchResults(data.data));
+                callGasApi('search', { query: text }, data => showSearchResults(data.data, false));
             }
         }
 
-        // 行データの保存・新規追加を実行する統合関数
+        // ==========================================
+        // 【新設】精査モード（全件取得＆ソート）
+        // ==========================================
+        function startAudit() {
+            stopReading();
+            document.getElementById('search-input').value = ''; // 検索窓を空にする
+            document.getElementById('status').innerText = "全件取得＆並び替え中...";
+            
+            callGasApi('search', { query: '' }, data => {
+                // 取得したデータを冊数(昇順) → ページ(昇順) でソート
+                let sortedData = data.data.sort((a, b) => {
+                    const b1 = parseInt(a.book) || 0;
+                    const b2 = parseInt(b.book) || 0;
+                    if (b1 !== b2) return b1 - b2;
+                    
+                    const p1 = parseInt(a.page) || 0;
+                    const p2 = parseInt(b.page) || 0;
+                    return p1 - p2;
+                });
+                
+                showSearchResults(sortedData, true); // 第2引数(true)で精査モードON
+            });
+        }
+
+        // ==========================================
+        // 【新設】読み上げコントロール関数群
+        // ==========================================
+        function playReading() {
+            if (totalRows === 0) return;
+            
+            if (isPaused) {
+                synth.resume(); // 一時停止からの再開
+                isPaused = false;
+                document.getElementById('status').innerText = "読み上げ再開...";
+                return;
+            }
+            
+            if (readingIndex >= totalRows) {
+                readingIndex = 0; // 最後までいっていたら最初から
+            }
+            
+            isReading = true;
+            isPaused = false;
+            document.getElementById('status').innerText = "精査読み上げ中...";
+            readNextRow();
+        }
+
+        function pauseReading() {
+            if (isReading && !isPaused) {
+                synth.pause();
+                isPaused = true;
+                document.getElementById('status').innerText = "読み上げ一時停止中（編集可能です）";
+            }
+        }
+
+        function stopReading() {
+            synth.cancel();
+            isReading = false;
+            isPaused = false;
+            readingIndex = 0;
+            clearHighlight();
+            document.getElementById('status').innerText = "待機中";
+        }
+
+        function clearHighlight() {
+            const rows = document.querySelectorAll('#result-body tr');
+            rows.forEach(r => r.classList.remove('highlight-row'));
+        }
+
+        function readNextRow() {
+            if (!isReading) return;
+            clearHighlight();
+
+            if (readingIndex >= totalRows) {
+                stopReading();
+                document.getElementById('status').innerText = "全件の精査が完了しました";
+                playSound('success');
+                return;
+            }
+
+            // 現在の行をハイライトしてスクロール
+            const prefix = 'row-' + readingIndex;
+            const tr = document.getElementById('tr-' + prefix);
+            if(tr) {
+                tr.classList.add('highlight-row');
+                tr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+
+            // ★ポイント：読み上げる直前に画面上のテキストボックスの値を取得する
+            // （一時停止中にユーザーが編集した場合、その最新の値を読み上げるため）
+            const name = document.getElementById(prefix + '-name').value;
+            const book = document.getElementById(prefix + '-book').value;
+            const page = document.getElementById(prefix + '-page').value;
+
+            const text = `${book}冊目、${page}ページ、${name}`;
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'ja-JP';
+            utterance.rate = 1.0; // 読み上げ速度（1.0が標準）
+
+            utterance.onend = () => {
+                readingIndex++;
+                // 次の行へ行く前に少し間を空ける（聞き取りやすさのため）
+                setTimeout(() => {
+                    if(isReading && !isPaused) readNextRow();
+                }, 500);
+            };
+
+            utterance.onerror = (e) => {
+                console.error("TTS Error", e);
+                readingIndex++;
+                setTimeout(() => { if(isReading && !isPaused) readNextRow(); }, 500);
+            };
+
+            synth.speak(utterance);
+        }
+
+        // ==========================================
+
         function saveRow(rowIndex, prefix) {
             const newName = document.getElementById(prefix + '-name').value;
             const newBook = document.getElementById(prefix + '-book').value;
@@ -210,23 +345,21 @@
                 return;
             }
 
-            // rowIndexが存在しない場合は新規の手動登録
             if (rowIndex === null || rowIndex === 'null') {
                 callGasApi('add', { name: newName, book: parseInt(newBook), page: parseInt(newPage) }, data => {
                     updateStatusSuccess("手動で登録しました");
-                    showSearchResults([data.data]); // 追加されたデータを表示
+                    showSearchResults([data.data], false);
                 });
             } else {
-                // 既存データの更新
                 callGasApi('update', { rowIndex: rowIndex, newName: newName, newBook: parseInt(newBook), newPage: parseInt(newPage) }, data => {
-                    updateStatusSuccess("内容を更新しました");
+                    updateStatusSuccess("内容を保存しました。再生ボタンで続きから読み上げます。");
+                    playSound('success');
+                    // ※精査モードを中断させないため、再検索（画面リロード）は行いません。
                 });
             }
         }
 
-        // 行データの削除を実行する関数
         function deleteRow(rowIndex, name) {
-            // 未登録の空行を削除する場合
             if (rowIndex === null || rowIndex === 'null') {
                 document.getElementById('result-body').innerHTML = '';
                 updateStatusSuccess("登録をキャンセルしました");
@@ -235,9 +368,9 @@
 
             if(confirm("「" + name + "」を完全に削除しますか？\n（この操作は元に戻せません）")) {
                 callGasApi('delete', { rowIndex: rowIndex }, data => {
-                    updateStatusSuccess(data.message);
-                    if(mode === 'search') manualSearch();
-                    else document.getElementById('result-body').innerHTML = '';
+                    updateStatusSuccess("削除しました");
+                    // 削除時は行ズレを防ぐため、強制的に再検索をかけて読み上げを停止します
+                    manualSearch(); 
                 });
             }
         }
@@ -250,7 +383,7 @@
             if (mode === 'search') {
                 document.getElementById('search-input').value = rawText;
                 lastSearchQuery = rawText;
-                callGasApi('search', { query: rawText }, data => showSearchResults(data.data));
+                callGasApi('search', { query: rawText }, data => showSearchResults(data.data, false));
             
             } else if (mode === 'register') {
                 const match = rawText.match(/^(.+?)\s*冊目\s*(?:の)?\s*(.+?)\s*ペ[ーイ]ジ\s*(.+)/);
@@ -279,52 +412,50 @@
                     const bookNum = parseInt(toNum(rawBook));
                     const pageNum = parseInt(toNum(rawPage));
 
-                    if (!isNaN(bookNum) && bookNum >= 1 && bookNum <= 9 && 
-                        !isNaN(pageNum) && pageNum >= 0 && pageNum <= 99) {
-                        
-                        // 【成功時】登録実行後、登録されたデータを1行表示する
+                    if (!isNaN(bookNum) && bookNum >= 1 && bookNum <= 9 && !isNaN(pageNum) && pageNum >= 0 && pageNum <= 99) {
                         callGasApi('add', { name: name, book: bookNum, page: pageNum }, data => {
                             updateStatusSuccess("音声登録に成功しました（内容を修正可能です）");
-                            showSearchResults([data.data]);
+                            showSearchResults([data.data], false);
                         });
                     } else {
-                        // 【失敗時】フォーマット外の場合は空行を表示
                         renderBlankRow();
                     }
                 } else {
-                    // 【失敗時】正規表現マッチ失敗の場合は空行を表示
                     renderBlankRow();
                 }
             }
         };
 
-        // 認識失敗時に空の行を1行表示する関数
         function renderBlankRow() {
             handleError("認識に失敗しました。手動で入力して登録してください。");
-            showSearchResults([{
-                rowIndex: null,
-                name: '',
-                book: '',
-                page: '',
-                date: '未登録'
-            }]);
+            showSearchResults([{ rowIndex: null, name: '', book: '', page: '', date: '未登録' }], false);
         }
 
-        // 検索結果や単一行データをテーブルに描画する関数
-        function showSearchResults(results) {
+        // isAuditMode=true の場合のみ、TTSコントロールパネルを表示
+        function showSearchResults(results, isAuditMode = false) {
             const tbody = document.getElementById('result-body');
             tbody.innerHTML = ''; 
+            
+            totalRows = results ? results.length : 0;
+            
+            if (isAuditMode) {
+                document.getElementById('tts-controls').style.display = 'flex';
+                readingIndex = 0;
+                document.getElementById('status').innerText = `${totalRows}件のデータを冊・ページ順に並べ替えました。再生ボタンで開始します。`;
+            } else {
+                document.getElementById('tts-controls').style.display = 'none';
+                stopReading();
+            }
 
             if (results && results.length > 0) {
                 results.forEach((row, index) => {
                     const prefix = 'row-' + index;
                     const rIndex = row.rowIndex ? row.rowIndex : null;
-                    
-                    // 新規空行(null)か既存データ(数値)かでボタンの色と文言を変える
                     const btnText = rIndex ? '保存' : '登録';
                     const btnClass = rIndex ? 'btn-update' : 'btn-add';
 
-                    const tr = `<tr>
+                    // trにIDを付与してハイライト・スクロールしやすくする
+                    const tr = `<tr id="tr-${prefix}">
                         <td class="col-name">
                             <input type="text" id="${prefix}-name" class="edit-name" value="${row.name}">
                         </td>
@@ -343,7 +474,7 @@
                     tbody.insertAdjacentHTML('beforeend', tr);
                 });
 
-                if(mode === 'search') {
+                if(mode === 'search' && !isAuditMode) {
                     document.getElementById('status').innerText = results.length + "件ヒット";
                     document.getElementById('status').style.color = "blue";
                     playSound('success');
@@ -356,7 +487,6 @@
         function updateStatusSuccess(msg) {
             document.getElementById('status').innerText = msg;
             document.getElementById('status').style.color = "blue";
-            playSound('success');
         }
 
         function handleError(msg) {
