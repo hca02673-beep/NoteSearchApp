@@ -14,7 +14,6 @@
             border-radius: 8px; text-align: left; line-height: 1.5; border: 1px solid #ddd;
         }
 
-        /* 上部ボタンエリア（3つ並びに変更） */
         .voice-btn-container { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 15px; width: 95%; margin: 0 auto 15px auto; }
         button.voice-btn {
             font-size: 1rem; padding: 12px 5px; width: 32%; 
@@ -25,11 +24,21 @@
         #btn-register { background-color: #fff9c4; }
         #btn-audit { background-color: #e8f5e9; border: 2px solid #4CAF50; }
 
-        /* 読み上げコントロールエリア（通常は非表示） */
+        /* 読み上げコントロールパネルのデザイン修正 */
         .tts-controls {
-            display: none; justify-content: center; gap: 10px; margin: 15px auto; 
-            padding: 10px; background-color: #333; border-radius: 8px; width: 90%;
+            display: none; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px; margin: 15px auto; 
+            padding: 10px; background-color: #333; border-radius: 8px; width: 90%; color: white;
         }
+        /* 新設：開始位置の入力エリア */
+        .tts-start-inputs { 
+            display: flex; align-items: center; gap: 5px; font-size: 0.95rem; 
+            background-color: #555; padding: 5px 10px; border-radius: 6px; 
+        }
+        .tts-start-inputs input { 
+            width: 50px; padding: 6px; border-radius: 4px; border: none; 
+            text-align: center; font-weight: bold; font-size: 1rem; 
+        }
+
         .tts-btn { font-size: 1rem; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; color: white; font-weight: bold; }
         #btn-play { background-color: #4CAF50; }
         #btn-pause { background-color: #ff9800; }
@@ -54,7 +63,6 @@
         th, td { border: 1px solid #ddd; padding: 6px; vertical-align: middle; }
         th { background-color: #f5f5f5; font-size: 0.9rem; white-space: nowrap; }
 
-        /* 読み上げ中の行をハイライト */
         .highlight-row td { background-color: #fff59d !important; transition: background-color 0.3s; }
 
         .col-name { width: 40%; }
@@ -88,7 +96,11 @@
     </div>
 
     <div id="tts-controls" class="tts-controls">
-        <button id="btn-play" class="tts-btn" onclick="playReading()">▶ 再生 / 再開</button>
+        <div class="tts-start-inputs">
+            <input type="number" id="start-book" placeholder="冊" min="1"> 冊
+            <input type="number" id="start-page" placeholder="頁" min="0"> 頁 から
+        </div>
+        <button id="btn-play" class="tts-btn" onclick="playReading()">▶ 再生/再開</button>
         <button id="btn-pause" class="tts-btn" onclick="pauseReading()">⏸ 一時停止</button>
         <button id="btn-stop" class="tts-btn" onclick="stopReading()">⏹ 停止</button>
     </div>
@@ -118,7 +130,7 @@
     <script>
         // ==========================================
         // ↓↓↓ 取得したGASのWebアプリURLを以下に設定 ↓↓↓
-        const GAS_URL = 'https://script.google.com/macros/s/AKfycbydVLLtEb_ZJuGN7y7O8rrgePpGWdJvfGXuX21LDo6jLSsK6ouS1OTMq2EN1cZJC1qzgg/exec';
+        const GAS_URL = 'ここにGASのURLを貼り付けます';
         // ==========================================
 
         const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
@@ -129,7 +141,7 @@
         let audioCtx = null;
         let lastSearchQuery = '';
 
-        // --- 読み上げ機能（TTS）用変数 ---
+        // TTS用変数
         let readingIndex = 0;
         let totalRows = 0;
         let isReading = false;
@@ -192,7 +204,7 @@
         }
 
         function startVoice(m) {
-            stopReading(); // 読み上げ中なら強制停止
+            stopReading();
             initAudio();
             mode = m;
             
@@ -209,7 +221,7 @@
         }
 
         function manualSearch() {
-            stopReading(); // 検索時は読み上げ停止
+            stopReading();
             const text = document.getElementById('search-input').value;
             if(text !== "") {
                 lastSearchQuery = text;
@@ -217,16 +229,12 @@
             }
         }
 
-        // ==========================================
-        // 【新設】精査モード（全件取得＆ソート）
-        // ==========================================
         function startAudit() {
             stopReading();
-            document.getElementById('search-input').value = ''; // 検索窓を空にする
+            document.getElementById('search-input').value = '';
             document.getElementById('status').innerText = "全件取得＆並び替え中...";
             
             callGasApi('search', { query: '' }, data => {
-                // 取得したデータを冊数(昇順) → ページ(昇順) でソート
                 let sortedData = data.data.sort((a, b) => {
                     const b1 = parseInt(a.book) || 0;
                     const b2 = parseInt(b.book) || 0;
@@ -236,26 +244,57 @@
                     const p2 = parseInt(b.page) || 0;
                     return p1 - p2;
                 });
-                
-                showSearchResults(sortedData, true); // 第2引数(true)で精査モードON
+                showSearchResults(sortedData, true); 
             });
         }
 
         // ==========================================
-        // 【新設】読み上げコントロール関数群
+        // 変更箇所：再生開始時に冊数・ページをチェックする
         // ==========================================
         function playReading() {
             if (totalRows === 0) return;
             
+            // 既に一時停止中なら、そのまま再開
             if (isPaused) {
-                synth.resume(); // 一時停止からの再開
+                synth.resume(); 
                 isPaused = false;
                 document.getElementById('status').innerText = "読み上げ再開...";
                 return;
             }
             
+            // 新規に再生ボタンを押したときの処理
+            let startIndex = readingIndex; 
+
+            if (!isReading) {
+                startIndex = 0;
+                const startBookVal = document.getElementById('start-book').value;
+                const startPageVal = document.getElementById('start-page').value;
+
+                // 入力ボックスに値がある場合は、該当する行を探す
+                if (startBookVal !== "") {
+                    const sb = parseInt(startBookVal);
+                    const sp = startPageVal !== "" ? parseInt(startPageVal) : 0; 
+
+                    const rows = document.querySelectorAll('#result-body tr');
+                    for (let i = 0; i < rows.length; i++) {
+                        const inputs = rows[i].querySelectorAll('.edit-num');
+                        if(inputs.length >= 2) {
+                            const b = parseInt(inputs[0].value) || 0;
+                            const p = parseInt(inputs[1].value) || 0;
+                            
+                            // 指定した冊数・ページ数「以上」のデータを見つけたらそこを開始位置に設定
+                            if (b > sb || (b === sb && p >= sp)) {
+                                startIndex = i;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            readingIndex = startIndex;
             if (readingIndex >= totalRows) {
-                readingIndex = 0; // 最後までいっていたら最初から
+                readingIndex = 0; // 最後まで行っていたら最初から
             }
             
             isReading = true;
@@ -278,7 +317,9 @@
             isPaused = false;
             readingIndex = 0;
             clearHighlight();
-            document.getElementById('status').innerText = "待機中";
+            if(document.getElementById('status').innerText.includes("読み上げ")) {
+                document.getElementById('status').innerText = "待機中";
+            }
         }
 
         function clearHighlight() {
@@ -297,7 +338,6 @@
                 return;
             }
 
-            // 現在の行をハイライトしてスクロール
             const prefix = 'row-' + readingIndex;
             const tr = document.getElementById('tr-' + prefix);
             if(tr) {
@@ -305,8 +345,6 @@
                 tr.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
 
-            // ★ポイント：読み上げる直前に画面上のテキストボックスの値を取得する
-            // （一時停止中にユーザーが編集した場合、その最新の値を読み上げるため）
             const name = document.getElementById(prefix + '-name').value;
             const book = document.getElementById(prefix + '-book').value;
             const page = document.getElementById(prefix + '-page').value;
@@ -314,11 +352,10 @@
             const text = `${book}冊目、${page}ページ、${name}`;
             const utterance = new SpeechSynthesisUtterance(text);
             utterance.lang = 'ja-JP';
-            utterance.rate = 1.0; // 読み上げ速度（1.0が標準）
+            utterance.rate = 1.0; 
 
             utterance.onend = () => {
                 readingIndex++;
-                // 次の行へ行く前に少し間を空ける（聞き取りやすさのため）
                 setTimeout(() => {
                     if(isReading && !isPaused) readNextRow();
                 }, 500);
@@ -354,7 +391,6 @@
                 callGasApi('update', { rowIndex: rowIndex, newName: newName, newBook: parseInt(newBook), newPage: parseInt(newPage) }, data => {
                     updateStatusSuccess("内容を保存しました。再生ボタンで続きから読み上げます。");
                     playSound('success');
-                    // ※精査モードを中断させないため、再検索（画面リロード）は行いません。
                 });
             }
         }
@@ -369,7 +405,6 @@
             if(confirm("「" + name + "」を完全に削除しますか？\n（この操作は元に戻せません）")) {
                 callGasApi('delete', { rowIndex: rowIndex }, data => {
                     updateStatusSuccess("削除しました");
-                    // 削除時は行ズレを防ぐため、強制的に再検索をかけて読み上げを停止します
                     manualSearch(); 
                 });
             }
@@ -431,7 +466,6 @@
             showSearchResults([{ rowIndex: null, name: '', book: '', page: '', date: '未登録' }], false);
         }
 
-        // isAuditMode=true の場合のみ、TTSコントロールパネルを表示
         function showSearchResults(results, isAuditMode = false) {
             const tbody = document.getElementById('result-body');
             tbody.innerHTML = ''; 
@@ -454,7 +488,6 @@
                     const btnText = rIndex ? '保存' : '登録';
                     const btnClass = rIndex ? 'btn-update' : 'btn-add';
 
-                    // trにIDを付与してハイライト・スクロールしやすくする
                     const tr = `<tr id="tr-${prefix}">
                         <td class="col-name">
                             <input type="text" id="${prefix}-name" class="edit-name" value="${row.name}">
